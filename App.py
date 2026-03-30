@@ -1,151 +1,107 @@
+
+        import streamlit as st
 import random
-import time
+import pandas as pd
 
+# --- 1. THE CLASS DEFINITION (Now with Environmental Sensors) ---
 class SpaceStationAI:
-
     def __init__(self, astronauts, activity_level):
         self.astronauts = astronauts
-        self.activity_level = activity_level.lower()
+        self.activity_level = activity_level
+        
+        # Life Support Base Levels
+        self.oxygen = 95.0
+        self.water = 500.0
+        self.co2 = 0.04
+        
+        # New Environmental Sensors
+        self.temperature = 22.0  # Celsius
+        self.humidity = 45.0     # Percentage
+        self.pressure = 101.3    # kPa (Standard Earth pressure)
+        self.rad_in = 150.0      # mSv (Incoming Radiation)
+        self.rad_out = 145.0     # mSv (Shielding/Reflected)
 
-        # 🌌 Initial realistic values
-        self.oxygen = random.uniform(20, 22)        # %
-        self.water = random.uniform(80, 120)        # liters
-        self.co2 = random.uniform(0.2, 0.6)         # %
-
-        self.pressure = random.uniform(98, 103)     # kPa
-        self.temperature = random.uniform(20, 25)   # °C
-        self.humidity = random.uniform(35, 60)      # %
-
-        self.radiation = random.uniform(0.05, 0.15) # mSv/hr
-        self.hydrogen = random.uniform(0.0, 0.05)   # %
-        self.contaminants = random.uniform(0.5, 2)  # ppm
-
-        # 🔥 Dynamic consumption
-        if self.activity_level == "low":
-            self.oxygen_rate = 0.8
-            self.water_rate = 0.5
-        elif self.activity_level == "medium":
-            self.oxygen_rate = 1.2
-            self.water_rate = 0.8
-        else:
-            self.oxygen_rate = 1.8
-            self.water_rate = 1.2
-
-    # 🔄 Sensor simulation
     def update_sensors(self):
-        self.oxygen -= random.uniform(0.05, 0.2)
-        self.water -= random.uniform(0.2, 0.8)
-        self.co2 += random.uniform(0.02, 0.08)
-
-        self.pressure += random.uniform(-0.5, 0.5)
-        self.temperature += random.uniform(-0.3, 0.3)
-        self.humidity += random.uniform(-2, 2)
-
-        self.radiation += random.uniform(-0.01, 0.02)
-        self.hydrogen += random.uniform(0.0, 0.01)
-        self.contaminants += random.uniform(0.0, 0.3)
+        multiplier = 1.5 if self.activity_level == "High" else 1.0
+        
+        # Resource Depletion
+        self.oxygen -= random.uniform(0.01, 0.03) * self.astronauts * multiplier
+        self.water -= random.uniform(0.05, 0.2) * self.astronauts
+        
+        # Environmental Fluctuations
+        self.temperature += random.uniform(-0.5, 0.5) * multiplier
+        self.humidity += random.uniform(-1, 1) * self.astronauts * 0.1
+        self.pressure += random.uniform(-0.01, 0.01)
+        
+        # Radiation Logic (Varies based on "orbit" simulation)
+        self.rad_in = 150.0 + random.uniform(-20, 50)
+        self.rad_out = self.rad_in * 0.95 # Assume 95% is shielded/reflected
 
     def calculate_time_left(self):
-        total_oxygen_usage = self.oxygen_rate * self.astronauts
-        total_water_usage = self.water_rate * self.astronauts
+        ox_time = self.oxygen * 2.5 
+        wat_time = self.water / (self.astronauts * 2)
+        return round(ox_time, 1), round(wat_time, 1)
 
-        oxygen_time = self.oxygen / total_oxygen_usage
-        water_time = self.water / total_water_usage
+    def check_status(self):
+        messages = []
+        if self.temperature > 28 or self.temperature < 18:
+            messages.append(f"⚠️ TEMP ANOMALY: {self.temperature:.1f}°C")
+        if self.pressure < 95:
+            messages.append("🚨 CRITICAL: DEPRESSURIZATION DETECTED")
+        if (self.rad_in - self.rad_out) > 15:
+            messages.append("☢️ HIGH RADIATION EXPOSURE")
+        if not messages:
+            messages.append("✅ Environmental Systems Nominal")
+        return messages
 
-        return oxygen_time, water_time
+# --- 2. STREAMLIT UI SETUP ---
+st.set_page_config(page_title="ISS Life Support Pro", layout="wide")
+st.title("🛰️ Advanced ISS Environmental Monitor")
 
-    # ⚠️ Smart AI Risk Detection
-    def check_status(self, oxygen_time, water_time):
-        status = []
+# Sidebar
+st.sidebar.header("Station Controls")
+astronauts = st.sidebar.slider("Crew Size", 1, 10, 3)
+activity = st.sidebar.selectbox("Activity level", ["Low", "Medium", "High"])
 
-        # Oxygen
-        if self.oxygen < 19:
-            status.append("🚨 Oxygen dangerously low")
-        elif self.oxygen < 20:
-            status.append("⚠️ Oxygen dropping")
+# Initialize session state
+if "ai" not in st.session_state:
+    st.session_state.ai = SpaceStationAI(astronauts, activity)
 
-        # CO2
-        if self.co2 > 1:
-            status.append("🚨 CO₂ high خطر")
-        elif self.co2 > 0.7:
-            status.append("⚠️ CO₂ rising")
+ai = st.session_state.ai
+ai.update_sensors()
+status_messages = ai.check_status()
 
-        # Pressure
-        if self.pressure < 95 or self.pressure > 105:
-            status.append("🚨 Pressure unstable")
+# --- 3. METRIC DASHBOARD ---
+# Row 1: Vital Resources
+st.subheader("💧 Vital Resources")
+c1, c2, c3 = st.columns(3)
+c1.metric("Oxygen", f"{ai.oxygen:.2f}%")
+c2.metric("CO2", f"{ai.co2:.3f}%")
+c3.metric("Water", f"{ai.water:.1f} L")
 
-        # Temperature
-        if self.temperature < 18 or self.temperature > 27:
-            status.append("⚠️ Temperature out of range")
+# Row 2: Environment
+st.subheader("🌡️ Cabin Environment")
+e1, e2, e3 = st.columns(3)
+e1.metric("Temperature", f"{ai.temperature:.1f}°C")
+e2.metric("Humidity", f"{ai.humidity:.1f}%")
+e3.metric("Pressure", f"{ai.pressure:.2f} kPa")
 
-        # Humidity
-        if self.humidity < 30 or self.humidity > 70:
-            status.append("⚠️ Humidity imbalance")
+# Row 3: Radiation Telemetry
+st.subheader("☢️ Radiation Flux")
+r1, r2, r3 = st.columns(3)
+net_rad = ai.rad_in - ai.rad_out
+r1.metric("Incoming (Sun/Cosmic)", f"{ai.rad_in:.1f} mSv")
+r2.metric("Outgoing (Shielded)", f"{ai.rad_out:.1f} mSv")
+r3.metric("Net Absorption", f"{net_rad:.2f} mSv", delta_color="inverse", delta=f"{net_rad:.2f}")
 
-        # Radiation
-        if self.radiation > 0.2:
-            status.append("🚨 Radiation spike!")
+# --- 4. ALERTS & CONTROLS ---
+st.divider()
+for msg in status_messages:
+    if "⚠️" in msg or "🚨" in msg or "☢️" in msg:
+        st.error(msg)
+    else:
+        st.success(msg)
 
-        # Hydrogen
-        if self.hydrogen > 0.1:
-            status.append("🚨 Hydrogen leak risk")
-
-        # Contaminants
-        if self.contaminants > 5:
-            status.append("🚨 Air contaminated")
-
-        # Water
-        if water_time < 8:
-            status.append("⚠️ Water low")
-
-        if not status:
-            status.append("✅ All systems stable")
-
-        return status
-
-    def predict_future_risk(self, oxygen_time):
-        if oxygen_time < 5:
-            return "🚨 Life support CRITICAL"
-        elif oxygen_time < 10:
-            return "⚠️ Risk increasing"
-        else:
-            return "✅ Stable forecast"
-
-
-# 🌌 MAIN LOOP
-
-print("🌌 AI Space Station Advanced Monitoring 🌌")
-
-astronauts = int(input("Enter number of astronauts: "))
-activity = input("Enter activity level (low / medium / high): ")
-
-ai = SpaceStationAI(astronauts, activity)
-
-while True:
-    ai.update_sensors()
-
-    oxygen_time, water_time = ai.calculate_time_left()
-
-    print("\n==============================")
-    print(f"🫁 Oxygen: {ai.oxygen:.2f}%")
-    print(f"💧 Water: {ai.water:.2f} L")
-    print(f"🌫️ CO₂: {ai.co2:.2f}%")
-
-    print(f"ضغط Pressure: {ai.pressure:.2f} kPa")
-    print(f"🌡️ Temperature: {ai.temperature:.2f} °C")
-    print(f"💧 Humidity: {ai.humidity:.2f}%")
-
-    print(f"☢️ Radiation: {ai.radiation:.3f} mSv/hr")
-    print(f"🧪 Hydrogen: {ai.hydrogen:.3f}%")
-    print(f"🧬 Contaminants: {ai.contaminants:.2f} ppm")
-
-    print(f"\n⏳ Oxygen left: {oxygen_time:.2f} hrs")
-    print(f"⏳ Water left: {water_time:.2f} hrs")
-
-    print("\n📊 Status:")
-    for s in ai.check_status(oxygen_time, water_time):
-        print("-", s)
-
-    print("\n⚠️ AI Prediction:", ai.predict_future_risk(oxygen_time))
-
-    time.sleep(2)
+if st.button('Update Station Telemetry'):
+    st.rerun()
+    
