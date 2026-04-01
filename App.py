@@ -1,107 +1,115 @@
-
 import streamlit as st
 import random
-import pandas as pd
+import time
 
-# --- 1. THE CLASS DEFINITION (Now with Environmental Sensors) ---
+# --- 1. THE CLASS DEFINITION (State-Persistent) ---
 class SpaceStationAI:
     def __init__(self, astronauts, activity_level):
         self.astronauts = astronauts
         self.activity_level = activity_level
         
-        # Life Support Base Levels
-        self.oxygen = 95.0
-        self.water = 500.0
-        self.co2 = 0.04
-        
-        # New Environmental Sensors
+        # Vital Stats (Starting at Nominal ISS levels)
+        self.oxygen = 21.0       # Percentage (Earth-like)
+        self.co2 = 0.03          # Percentage
+        self.water = 500.0       # Liters
         self.temperature = 22.0  # Celsius
-        self.humidity = 45.0     # Percentage
-        self.pressure = 101.3    # kPa (Standard Earth pressure)
-        self.rad_in = 150.0      # mSv (Incoming Radiation)
-        self.rad_out = 145.0     # mSv (Shielding/Reflected)
+        self.humidity = 40.0     # Percentage
+        self.pressure = 101.3    # kPa
+        
+        # Radiation
+        self.rad_in = 12.0       # μSv/hr (Hourly rate is more realistic for telemetry)
+        self.shielding_eff = 0.94 # 94% efficiency
 
     def update_sensors(self):
-        multiplier = 1.5 if self.activity_level == "High" else 1.0
+        # Multipliers based on activity
+        act_mult = {"Low": 1.0, "Medium": 1.5, "High": 2.2}[self.activity_level]
         
-        # Resource Depletion
-        self.oxygen -= random.uniform(0.01, 0.03) * self.astronauts * multiplier
-        self.water -= random.uniform(0.05, 0.2) * self.astronauts
+        # 1. Oxygen Depletion & CO2 Rise
+        # Humans consume ~0.84kg of O2 per day. In a small volume, % drops slowly.
+        o2_drop = (0.005 * self.astronauts * act_mult)
+        self.oxygen -= o2_drop
+        self.co2 += o2_drop * 0.85  # Respiratory Quotient
         
-        # Environmental Fluctuations
-        self.temperature += random.uniform(-0.5, 0.5) * multiplier
-        self.humidity += random.uniform(-1, 1) * self.astronauts * 0.1
-        self.pressure += random.uniform(-0.01, 0.01)
+        # 2. Water Usage & Recovery
+        # Simulation of drinking vs. the Water Recovery System (WRS)
+        water_used = (0.1 * self.astronauts * act_mult)
+        water_recovered = water_used * 0.93 # ISS recovers ~93% of water
+        self.water -= (water_used - water_recovered)
         
-        # Radiation Logic (Varies based on "orbit" simulation)
-        self.rad_in = 150.0 + random.uniform(-20, 50)
-        self.rad_out = self.rad_in * 0.95 # Assume 95% is shielded/reflected
-
-    def calculate_time_left(self):
-        ox_time = self.oxygen * 2.5 
-        wat_time = self.water / (self.astronauts * 2)
-        return round(ox_time, 1), round(wat_time, 1)
-
+        # 3. Environment (Heat and Humidity)
+        # Body heat and sweat increase temp/humidity
+        self.temperature += (0.02 * self.astronauts * act_mult) - 0.05 # Cooling system fights back
+        self.humidity += (0.1 * self.astronauts * act_mult) - 0.15    # Dehumidifier fights back
+        
+        # 4. Pressure (Minor cabin leak simulation)
+        self.pressure -= 0.002 
+        
+        # 5. Radiation (Variable based on solar activity)
+        self.rad_in = 12.0 + random.uniform(-2.0, 8.0)
+        
     def check_status(self):
-        messages = []
-        if self.temperature > 28 or self.temperature < 18:
-            messages.append(f"⚠️ TEMP ANOMALY: {self.temperature:.1f}°C")
-        if self.pressure < 95:
-            messages.append("🚨 CRITICAL: DEPRESSURIZATION DETECTED")
-        if (self.rad_in - self.rad_out) > 15:
-            messages.append("☢️ HIGH RADIATION EXPOSURE")
-        if not messages:
-            messages.append("✅ Environmental Systems Nominal")
-        return messages
+        alerts = []
+        if self.oxygen < 19.5: alerts.append("🚨 LOW OXYGEN: Check Electrolysis System")
+        if self.co2 > 0.5: alerts.append("⚠️ HIGH CO2: Check Scrubbers")
+        if self.temperature > 27: alerts.append("🌡️ THERMAL OVERLOAD: Check Cooling Loops")
+        if self.pressure < 98.0: alerts.append("🚨 DEPRESSURIZATION DETECTED")
+        return alerts
 
 # --- 2. STREAMLIT UI SETUP ---
-st.set_page_config(page_title="ISS Life Support Pro", layout="wide")
-st.title("🛰️ Advanced ISS Environmental Monitor")
+st.set_page_config(page_title="ISS Mission Control", layout="wide")
+st.title("🛰️ ISS Life Support Telemetry")
 
-# Sidebar
-st.sidebar.header("Station Controls")
-astronauts = st.sidebar.slider("Crew Size", 1, 10, 3)
-activity = st.sidebar.selectbox("Activity level", ["Low", "Medium", "High"])
+# Initialize Session State (This keeps the numbers moving instead of resetting)
+if "station" not in st.session_state:
+    st.session_state.station = SpaceStationAI(3, "Medium")
+    st.session_state.history = {"o2": 21.0, "temp": 22.0, "press": 101.3}
 
-# Initialize session state
-if "ai" not in st.session_state:
-    st.session_state.ai = SpaceStationAI(astronauts, activity)
+ss = st.session_state.station
 
-ai = st.session_state.ai
-ai.update_sensors()
-status_messages = ai.check_status()
+# Sidebar Controls
+st.sidebar.header("Command Center")
+ss.astronauts = st.sidebar.slider("Crew Count", 1, 7, ss.astronauts)
+ss.activity_level = st.sidebar.selectbox("Current Activity", ["Low", "Medium", "High"], index=1)
 
-# --- 3. METRIC DASHBOARD ---
-# Row 1: Vital Resources
-st.subheader("💧 Vital Resources")
-c1, c2, c3 = st.columns(3)
-c1.metric("Oxygen", f"{ai.oxygen:.2f}%")
-c2.metric("CO2", f"{ai.co2:.3f}%")
-c3.metric("Water", f"{ai.water:.1f} L")
+# Logic: Store old values for deltas, then update
+old_o2 = ss.oxygen
+old_temp = ss.temperature
+old_press = ss.pressure
 
-# Row 2: Environment
-st.subheader("🌡️ Cabin Environment")
-e1, e2, e3 = st.columns(3)
-e1.metric("Temperature", f"{ai.temperature:.1f}°C")
-e2.metric("Humidity", f"{ai.humidity:.1f}%")
-e3.metric("Pressure", f"{ai.pressure:.2f} kPa")
+if st.button('🔄 Sync Telemetry (Step 1 min)'):
+    ss.update_sensors()
 
-# Row 3: Radiation Telemetry
-st.subheader("☢️ Radiation Flux")
-r1, r2, r3 = st.columns(3)
-net_rad = ai.rad_in - ai.rad_out
-r1.metric("Incoming (Sun/Cosmic)", f"{ai.rad_in:.1f} mSv")
-r2.metric("Outgoing (Shielded)", f"{ai.rad_out:.1f} mSv")
-r3.metric("Net Absorption", f"{net_rad:.2f} mSv", delta_color="inverse", delta=f"{net_rad:.2f}")
+# --- 3. DASHBOARD RENDERING ---
+col1, col2, col3 = st.columns(3)
 
-# --- 4. ALERTS & CONTROLS ---
+with col1:
+    st.subheader("Atmospheric Composition")
+    st.metric("Oxygen", f"{ss.oxygen:.3f}%", f"{ss.oxygen - old_o2:.4f}%", delta_color="normal")
+    st.metric("CO2", f"{ss.co2:.3f}%", f"{ss.co2 - (old_o2*0.85):.4f}%", delta_color="inverse")
+
+with col2:
+    st.subheader("Cabin Climate")
+    st.metric("Temperature", f"{ss.temperature:.2f}°C", f"{ss.temperature - old_temp:.2f}°C")
+    st.metric("Pressure", f"{ss.pressure:.3f} kPa", f"{ss.pressure - old_press:.3f} kPa", delta_color="normal")
+
+with col3:
+    st.subheader("Resources & Radiation")
+    st.metric("Water Reservoir", f"{ss.water:.2f} L")
+    net_rad = ss.rad_in * (1 - ss.shielding_eff)
+    st.metric("Net Radiation", f"{net_rad:.3f} μSv/h")
+
+# --- 4. ALERTS ---
 st.divider()
-for msg in status_messages:
-    if "⚠️" in msg or "🚨" in msg or "☢️" in msg:
-        st.error(msg)
-    else:
-        st.success(msg)
+status_alerts = ss.check_status()
+if not status_alerts:
+    st.success("✅ All systems nominal. Environmental Control and Life Support System (ECLSS) stable.")
+else:
+    for alert in status_alerts:
+        st.error(alert)
 
-if st.button('Update Station Telemetry'):
+# Reset Button
+if st.sidebar.button("Reset Simulation"):
+    st.session_state.clear()
     st.rerun()
-    
+
+        
